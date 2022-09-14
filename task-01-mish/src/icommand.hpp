@@ -24,7 +24,7 @@ public:
     m_args.emplace_back(std::forward<std::remove_reference_t<T>>(arg));
   };
 
-  virtual void run(const linux_fd::fd_type, const linux_fd::fd_type) = 0;
+  virtual bool run(const linux_fd::fd_type, const linux_fd::fd_type) = 0;
   virtual ~i_command() = default;
 };
 

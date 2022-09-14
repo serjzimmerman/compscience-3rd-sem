@@ -16,6 +16,11 @@
 namespace mish {
 class cd_command final : public i_command {
 public:
-  void run(const linux_fd::fd_type, const linux_fd::fd_type) override;
+  bool run(const linux_fd::fd_type, const linux_fd::fd_type) override;
+};
+
+class pwd_command final : public i_command {
+public:
+  bool run(const linux_fd::fd_type, const linux_fd::fd_type) override;
 };
 }; // namespace mish

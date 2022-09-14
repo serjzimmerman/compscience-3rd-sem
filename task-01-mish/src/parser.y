@@ -1,37 +1,41 @@
-%skeleton "lalr1.cc" // -*- C++ -*-
-%require "3.8.1"
-%header
-
-%define api.token.raw
-%define api.token.constructor
+%require "3.2"
+%language "c++"
 %define api.value.type variant
-%define parse.assert
+%define api.token.constructor
+
+%param {yyscan_t yyscanner}
 
 %code requires {
-#include <string>
-class driver;
+#include <memory>
+#include "token.yy.hh"
 }
 
-// The parsing context.
-%param { mish::driver& drv }
+%token GREATER ">"
+%token LESS "<"
+%token PIPE "|"
+%token CD_BUILTIN "cd"
+%token PWD_BUILTIN "pwd"
 
-%locations
+%empty epsilon
 
-%define parse.trace
-%define parse.error detailed
-%define parse.lac full
+%token<std::string> ID arg
+%nterm<std::unique_ptr<mish::i_command>> command builtin_command command_arg_pack
+%nterm<std::vector<std::string>> args
 
-%code {
-#include "driver.hpp"
-}
+%%
 
-%define api.token.prefix {TOK_}
-%token
-  LESS      "<"
-  GREATER   ">"
-  PIPE      "|"
-;
+arg :   ID |
+        epsilon
 
-%token <std::string>  "identifier"
-%nterm <int> command
+args :  args arg |
+        epsilon
 
+builtin_command : CD_BUILTIN  |
+                  PWD_BUILTIN
+
+command : builtin_command |
+          ID
+
+command_arg_pack : command args
+
+expr : command_arg_pack

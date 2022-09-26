@@ -66,4 +66,9 @@ set(EXEC_SOURCES
   src/main.c
 )
 
-add_executable(mish ${EXEC_SOURCES})
+add_executable(cfile ${EXEC_SOURCES})
+
+option(DEBUG_PRINT OFF)
+if (DEBUG_PRINT)
+    target_compile_definitions(cfile PRIVATE DEBUG_PRINT)
+endif()

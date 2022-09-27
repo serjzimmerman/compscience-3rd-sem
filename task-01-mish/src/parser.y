@@ -1,41 +1,70 @@
-%require "3.2"
-%language "c++"
-%define api.value.type variant
-%define api.token.constructor
+%language "c"
 
-%param {yyscan_t yyscanner}
+%{
+#include <stdio.h>
+#include <stdlib.h>
+
+int yylex(void);
+void yyerror(void **result, const char *s);
+extern void *ast_current_root;
+
+%}
 
 %code requires {
-#include <memory>
-#include "token.yy.hh"
+#include "commands.h"
 }
 
-%token GREATER ">"
-%token LESS "<"
-%token PIPE "|"
-%token CD_BUILTIN "cd"
-%token PWD_BUILTIN "pwd"
+%define parse.error custom
+%union {
+  char *strval;
+  command_arg_list *args;
+  command_list *commands;
+  command_t *cmd;
+}
 
-%empty epsilon
+%token REDIR_OUT
+%token REDIR_INP
+%token PIPE
 
-%token<std::string> ID arg
-%nterm<std::unique_ptr<mish::i_command>> command builtin_command command_arg_pack
-%nterm<std::vector<std::string>> args
+%token BUILTIN_CMD_PWD
+%token BUILTIN_CMD_CD
+
+%token<strval> ID 
+
+%nterm<args> arguments
+%nterm<cmd> command
+%nterm<commands> program
+
+%initial-action { };
+%parse-param { void **result }
+
+%start unit
 
 %%
 
-arg :   ID |
-        epsilon
+unit:   program                       { *result = $1; }
+;
 
-args :  args arg |
-        epsilon
+program:  program PIPE command        { $$ = $1; command_list_node *node = command_list_node_init(); node->value = $3; command_list_push_back($$, node); }
+          | command                   { $$ = command_list_init(); command_list_node *node = command_list_node_init(); node->value = $1; command_list_push_back($$, node); }
+;
 
-builtin_command : CD_BUILTIN  |
-                  PWD_BUILTIN
+command:  BUILTIN_CMD_CD ID           { $$ = command_cd($2); }
+          | BUILTIN_CMD_PWD           { $$ = command_pwd(); }
+          | ID arguments              { $$ = command_generic($1, $2); }
+;
 
-command : builtin_command |
-          ID
+arguments: arguments ID               { command_arg_list_node *node = command_arg_list_node_init(); node->value = $2; command_arg_list_push_back($1, node); $$ = $1; }
+          | ID                        { $$ = command_arg_list_init(); command_arg_list_node *node = command_arg_list_node_init(); node->value = $1; command_arg_list_push_back($$, node);}
+          | %empty                    { $$ = NULL; }
+;
 
-command_arg_pack : command args
+%%
 
-expr : command_arg_pack
+static int yyreport_syntax_error (const yypcontext_t *yyctx, void **result) {
+  // AST_REPORT_ERROR(result, "Parse error\n");
+}
+
+void yyerror(void **result, const char *s) {
+
+}

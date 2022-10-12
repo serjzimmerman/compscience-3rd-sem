@@ -25,15 +25,15 @@ extern "C" {
 #include <optional>
 
 double calculate_integral(std::size_t n_points, std::pair<double, double> x_span, std::pair<double, double> y_span,
-                          auto function, unsigned subdiv = 1) {
+                          auto function, unsigned subdiv_x = 1, unsigned subdiv_y = 1) {
   if (x_span.first > x_span.second) std::swap(x_span.first, x_span.second);
   if (y_span.first > y_span.second) std::swap(y_span.first, y_span.second);
 
-  auto grid_size_x = (x_span.second - x_span.first) / subdiv;
-  auto grid_size_y = (y_span.second - y_span.first) / subdiv;
+  auto grid_size_x = (x_span.second - x_span.first) / subdiv_x;
+  auto grid_size_y = (y_span.second - y_span.first) / subdiv_y;
 
-  std::mutex  mutex;
-  std::size_t below = 0;
+  std::mutex mutex;
+  long long  below = 0;
 
   auto calculation = [&mutex, &below, function](std::pair<double, double> p_x_span, std::pair<double, double> p_y_snap,
                                                 std::size_t points) {
@@ -43,25 +43,28 @@ double calculate_integral(std::size_t n_points, std::pair<double, double> x_span
     std::uniform_real_distribution dis_x{p_x_span.first, p_x_span.second};
     std::uniform_real_distribution dis_y{p_y_snap.first, p_y_snap.second};
 
-    std::size_t count = 0;
+    long long count = 0;
 
     for (std::size_t i = 0; i < points; ++i) {
       auto [x, y] = std::pair{dis_x(re), dis_y(re)};
 
       auto value = function(x);
-      if (std::abs(y) <= std::abs(value)) count++;
+      if (value < 0 && y > value)
+        count--;
+      else if (value > 0 && y < value)
+        count++;
     }
 
     const std::lock_guard<std::mutex> lock(mutex);
     below += count;
   };
 
-  auto points_per_thread = n_points / (subdiv * subdiv);
-  auto total_points = points_per_thread * (subdiv * subdiv);
+  auto points_per_thread = n_points / (subdiv_x * subdiv_y);
+  auto total_points = points_per_thread * (subdiv_x * subdiv_y);
 
   boost::thread_group group;
-  for (std::size_t i = 0; i < subdiv; ++i) {
-    for (std::size_t j = 0; j < subdiv; ++j) {
+  for (std::size_t i = 0; i < subdiv_x; ++i) {
+    for (std::size_t j = 0; j < subdiv_y; ++j) {
       auto thread_x_span = std::pair{x_span.first + grid_size_x * i, x_span.first + grid_size_x * (i + 1)};
       auto thread_y_span = std::pair{y_span.first + grid_size_y * j, y_span.first + grid_size_y * (j + 1)};
 
@@ -75,17 +78,46 @@ double calculate_integral(std::size_t n_points, std::pair<double, double> x_span
   return static_cast<double>(below) / total_points * (x_span.second - x_span.first) * (y_span.second - y_span.first);
 }
 
-double calculate_integral(std::size_t n_points, std::pair<double, double> x_span, auto function, unsigned subdiv = 1) {
-  return calculate_integral(n_points, x_span, {function(x_span.first), function(x_span.second)}, function, subdiv);
+double calculate_integral(std::size_t n_points, std::pair<double, double> x_span, auto function, unsigned subdiv_x = 1,
+                          unsigned subdiv_y = 1) {
+  return calculate_integral(n_points, x_span, {function(x_span.first), function(x_span.second)}, function, subdiv_x,
+                            subdiv_y);
+}
+
+auto circle_equation = [](auto val) { return std::sqrt(1 - val * val); };
+
+auto calculate_pi(std::size_t n_points, unsigned subdiv_x = 1, unsigned subdiv_y = 1) {
+  return 4 * calculate_integral(n_points, {0, 1}, circle_equation, subdiv_x, subdiv_y);
+}
+
+void benchmark_pi(unsigned num_threads, std::size_t num_points, bool verbose = false) {
+  double pi_val;
+
+  std::cout << std::fixed;
+
+  for (unsigned i = 1; i <= num_threads; ++i) {
+    auto start = std::chrono::high_resolution_clock::now();
+    pi_val = calculate_pi(num_points, i);
+    auto finish = std::chrono::high_resolution_clock::now();
+
+    if (verbose) {
+      std::cout << "Calculation on " << i << " thread took " << std::chrono::duration<double>{finish - start}.count()
+                << " s, result: " << pi_val << "\n";
+    }
+
+    else {
+      std::cout << std::chrono::duration<double>{finish - start}.count() << "\n";
+    }
+  }
 }
 
 int main(int argc, char *argv[]) {
-  unsigned bs, count;
+  unsigned points, threads;
 
   po::options_description desc("Available options");
-  desc.add_options()("help,h", "Print this help message")("bs", po::value<unsigned>(&bs)->default_value(1024),
-                                                          "Bytes to transfer in a single iteration")(
-      "count", po::value<unsigned>(&count)->default_value(4096), "Total number of transfers");
+  desc.add_options()("help,h", "Print this help message")(
+      "npoints,p", po::value<unsigned>(&points)->default_value(10000000), "Number of points to sample")(
+      "nthreads,t", po::value<unsigned>(&threads)->default_value(16), "Benchmark up to threads")("verbose,v", "Print verbose output");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -96,7 +128,5 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  std::cout << 4 * calculate_integral(
-                   100000000, {0.0, 1}, [](auto val) { return std::sqrt(1 - val * val); }, 3)
-            << "\n";
+  benchmark_pi(threads, points, vm.count("verbose"));
 }

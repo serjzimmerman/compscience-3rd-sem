@@ -71,3 +71,8 @@ set(EXEC_SOURCES
 
 add_executable(integral ${EXEC_SOURCES})
 target_link_libraries(integral Boost::program_options Boost::thread)
+
+option(VERBOSE OFF)
+if (VERBOSE)
+    add_compile_definitions(integral -DVERBOSE)
+endif()

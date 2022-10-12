@@ -93,7 +93,7 @@ auto calculate_pi(std::size_t n_points, unsigned subdiv_x = 1, unsigned subdiv_y
 void benchmark_pi(unsigned num_threads, std::size_t num_points, bool verbose = false) {
   double pi_val;
 
-  std::cout << std::fixed;
+  if (!verbose) std::cout << std::fixed << "# thread \t\t time (s)\n";
 
   for (unsigned i = 1; i <= num_threads; ++i) {
     auto start = std::chrono::high_resolution_clock::now();
@@ -106,7 +106,7 @@ void benchmark_pi(unsigned num_threads, std::size_t num_points, bool verbose = f
     }
 
     else {
-      std::cout << std::chrono::duration<double>{finish - start}.count() << "\n";
+      std::cout << i << "\t\t\t" << std::chrono::duration<double>{finish - start}.count() << "\n";
     }
   }
 }
@@ -116,8 +116,9 @@ int main(int argc, char *argv[]) {
 
   po::options_description desc("Available options");
   desc.add_options()("help,h", "Print this help message")(
-      "npoints,p", po::value<unsigned>(&points)->default_value(10000000), "Number of points to sample")(
-      "nthreads,t", po::value<unsigned>(&threads)->default_value(16), "Benchmark up to threads")("verbose,v", "Print verbose output");
+      "npoints,p", po::value<unsigned>(&points)->default_value(10000000),
+      "Number of points to sample")("nthreads,t", po::value<unsigned>(&threads)->default_value(16),
+                                    "Benchmark up to threads")("verbose,v", "Print verbose output");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);

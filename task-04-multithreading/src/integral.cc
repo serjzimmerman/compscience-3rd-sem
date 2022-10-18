@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -90,35 +91,50 @@ auto calculate_pi(std::size_t n_points, unsigned subdiv_x = 1, unsigned subdiv_y
   return 4 * calculate_integral(n_points, {0, 1}, circle_equation, subdiv_x, subdiv_y);
 }
 
-void benchmark_pi(unsigned num_threads, std::size_t num_points, bool verbose = false) {
+void benchmark_pi(unsigned num_threads, std::size_t num_points, unsigned iters, bool verbose = false) {
   double pi_val;
+
+  std::vector<double> results;
+  results.resize(num_threads + 1, 0);
 
   if (!verbose) std::cout << std::fixed << "# thread \t\t time (s)\n";
 
-  for (unsigned i = 1; i <= num_threads; ++i) {
-    auto start = std::chrono::high_resolution_clock::now();
-    pi_val = calculate_pi(num_points, i);
-    auto finish = std::chrono::high_resolution_clock::now();
-
+  for (unsigned j = 0; j < iters; ++j) {
     if (verbose) {
-      std::cout << "Calculation on " << i << " thread took " << std::chrono::duration<double>{finish - start}.count()
-                << " s, result: " << pi_val << "\n";
+      std::cout << "Iteration " << j << " :\n";
     }
 
-    else {
-      std::cout << i << "\t\t\t" << std::chrono::duration<double>{finish - start}.count() << "\n";
+    for (unsigned i = 1; i <= num_threads; ++i) {
+      auto start = std::chrono::high_resolution_clock::now();
+      pi_val = calculate_pi(num_points, i);
+      auto finish = std::chrono::high_resolution_clock::now();
+      results[i] = std::chrono::duration<double>{finish - start}.count();
+
+      if (verbose) {
+        std::cout << "Calculation on " << i << " threads took " << results[i] << " s, result: " << pi_val << "\n";
+      }
+    }
+  }
+
+  std::for_each(results.begin(), results.end(), [iters](auto &&val) { return val / iters; });
+  for (unsigned i = 1; i < results.size(); ++i) {
+    if (verbose) {
+      std::cout << "Average time on " << i << " threads -- " << results[i] << " s\n";
+    } else {
+      std::cout << i << "\t\t\t" << results[i] << "\n";
     }
   }
 }
 
 int main(int argc, char *argv[]) {
-  unsigned points, threads;
+  unsigned points, threads, iters;
 
   po::options_description desc("Available options");
   desc.add_options()("help,h", "Print this help message")(
-      "npoints,p", po::value<unsigned>(&points)->default_value(10000000),
-      "Number of points to sample")("nthreads,t", po::value<unsigned>(&threads)->default_value(16),
-                                    "Benchmark up to threads")("verbose,v", "Print verbose output");
+      "npoints,p", po::value<unsigned>(&points)->default_value(10000000), "Number of points to sample")(
+      "nthreads,t", po::value<unsigned>(&threads)->default_value(16),
+      "Benchmark up to threads")("niter,i", po::value<unsigned>(&iters)->default_value(10),
+                                 "Number of iterations to average over")("verbose,v", "Print verbose output");
 
   po::variables_map vm;
   po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -129,5 +145,5 @@ int main(int argc, char *argv[]) {
     return 1;
   }
 
-  benchmark_pi(threads, points, vm.count("verbose"));
+  benchmark_pi(threads, points, iters, vm.count("verbose"));
 }

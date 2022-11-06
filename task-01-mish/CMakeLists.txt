@@ -70,14 +70,13 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 include_directories(common)
 
 set(EXEC_SOURCES
-  src/mish.c
+  src/mish.cc
 )
 
-bison_target(parser src/parser.y ${CMAKE_CURRENT_BINARY_DIR}/parser.y.c DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/parser.y.h
-    COMPILE_FLAGS --debug)
-flex_target(scanner src/scanner.l scanner.l.c DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/scanner.l.h)
+bison_target(parser src/parser.y ${CMAKE_CURRENT_BINARY_DIR}/parser.y.cc DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/bison_mish_parser.hpp)
+flex_target(scanner src/scanner.l scanner.l.cc DEFINES_FILE)
 add_flex_bison_dependency(scanner parser)
 
 add_executable(mish ${EXEC_SOURCES} ${BISON_parser_OUTPUTS} ${FLEX_scanner_OUTPUTS})
-target_include_directories(mish PRIVATE include common ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(mish readline)
+target_include_directories(mish PUBLIC include common ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(mish)

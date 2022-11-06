@@ -1,70 +1,100 @@
-%language "c"
+/*
+ * ----------------------------------------------------------------------------
+ * "THE BEER-WARE LICENSE" (Revision 42):
+ * <tsimmerman.ss@phystech.edu>, <alex.rom23@mail.ru> wrote this file.  As long as you
+ * retain this notice you can do whatever you want with this stuff. If we meet
+ * some day, and you think this stuff is worth it, you can buy me a beer in
+ * return.
+ * ----------------------------------------------------------------------------
+ */
 
-%{
-#include <stdio.h>
-#include <stdlib.h>
+%skeleton "lalr1.cc"
+%require "3.8"
 
-int yylex(void);
-void yyerror(void **result, const char *s);
-extern void *ast_current_root;
+%defines
 
-%}
+%define api.token.raw
+%define api.parser.class { parser }
+%define api.token.constructor
+%define api.value.type variant
+%define parse.assert
+%define api.namespace { mish }
 
 %code requires {
-#include "commands.h"
+#include <iostream>
+#include <string>
+#include <vector>
+#include <optional>
+#include "command.hpp"
+
+namespace mish {
+  class scanner;
+  class driver;
 }
 
-%define parse.error custom
-%union {
-  char *strval;
-  command_arg_list *args;
-  command_list *commands;
-  command_t *cmd;
+using namespace mish;
+
 }
 
-%token REDIR_OUT
-%token REDIR_INP
-%token PIPE
+%code top
+{
 
-%token BUILTIN_CMD_PWD
-%token BUILTIN_CMD_CD
+#include <iostream>
+#include <string>
 
-%token<strval> ID 
+#include "driver.hpp"
+#include "scanner.hpp"
+#include "bison_mish_parser.hpp"
 
-%nterm<args> arguments
-%nterm<cmd> command
-%nterm<commands> program
+static mish::parser::symbol_type yylex(mish::scanner &p_scanner, mish::driver &p_driver) {
+  return p_scanner.get_next_token();
+}
 
-%initial-action { };
-%parse-param { void **result }
+}
 
-%start unit
+%lex-param { mish::scanner &scanner }
+%lex-param { mish::driver &driver }
+%parse-param { mish::scanner &scanner }
+%parse-param { mish::driver &driver }
+
+%define parse.trace
+%define parse.error verbose
+%define api.token.prefix {TOKEN_}
+
+/* Signle letter tokens */
+%token REDIR_OUT ">"
+%token REDIR_IN "<"
+%token PIPE "|"
+%token BUILTIN_CD "cd"
+%token BUILTIN_PWD "pwd"
+
+/* Terminals */
+%token <std::string> IDENTIFIER "identifier"
+
+%type <std::vector<std::string>> arguments
+%type <std::unique_ptr<mish::i_command>> command
+%type <std::vector<std::unique_ptr<mish::i_command>>> program
+
+%start all
 
 %%
 
-unit:   program                       { *result = $1; }
-;
+all: program                        { driver.m_parsed = std::move($1); }
 
-program:  program PIPE command        { $$ = $1; command_list_node *node = command_list_node_init(); node->value = $3; command_list_push_back($$, node); }
-          | command                   { $$ = command_list_init(); command_list_node *node = command_list_node_init(); node->value = $1; command_list_push_back($$, node); }
-;
+program:  program PIPE command      { $$ = std::move($1); $$.push_back(std::move($3)); }
+          | command                 { $$.push_back(std::move($1)); }
 
-command:  BUILTIN_CMD_CD ID           { $$ = command_cd($2); }
-          | BUILTIN_CMD_PWD           { $$ = command_pwd(); }
-          | ID arguments              { $$ = command_generic($1, $2); }
-;
+command:  IDENTIFIER arguments      { $$ = std::make_unique<mish::generic_command>($1, std::move($2)); }
+          | BUILTIN_CD IDENTIFIER   { $$ = std::make_unique<mish::cd_command>($2); }
+          | BUILTIN_PWD             { $$ = std::make_unique<mish::pwd_command>(); }
 
-arguments: arguments ID               { command_arg_list_node *node = command_arg_list_node_init(); node->value = $2; command_arg_list_push_back($1, node); $$ = $1; }
-          | ID                        { $$ = command_arg_list_init(); command_arg_list_node *node = command_arg_list_node_init(); node->value = $1; command_arg_list_push_back($$, node);}
-          | %empty                    { $$ = NULL; }
-;
-
+arguments:  arguments IDENTIFIER    { $$ = std::move($1); $$.push_back($2); }
+            | %empty                { }
+            
 %%
 
-static int yyreport_syntax_error (const yypcontext_t *yyctx, void **result) {
-  // AST_REPORT_ERROR(result, "Parse error\n");
-}
-
-void yyerror(void **result, const char *s) {
-
+// Bison expects us to provide implementation - otherwise linker complains
+void mish::parser::error(const std::string &message) {
+  std::cout << "Error: " << message << "\n";
+  driver.m_success = false;
 }

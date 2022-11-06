@@ -1,33 +1,42 @@
-%option noyywrap
+/*
+ * ----------------------------------------------------------------------------
+ * "THE BEER-WARE LICENSE" (Revision 42):
+ * <tsimmerman.ss@phystech.edu>, <alex.rom23@mail.ru> wrote this file.  As long as you
+ * retain this notice you can do whatever you want with this stuff. If we meet
+ * some day, and you think this stuff is worth it, you can buy me a beer in
+ * return.
+ * ----------------------------------------------------------------------------
+ */
 
 %{
-#include <stdlib.h>
-#include <string.h>
-#include <stdio.h>
-#include "parser.y.h"
-#include "memutil.h"
+#include <iostream>
+#include <numeric>
+
+#include "bison_mish_parser.hpp"
+#include "scanner.hpp"
+
+using namespace mish;
 %}
 
-WS        [\t\n\r ]
-ID        [^\t\n\r ]
+%option noyywrap nounput noinput nodefault 
+%option c++
+%option prefix="mish_"
+%option yyclass="scanner"
+
+whitespace  [ \t\n\r]
+string      [^ \t\n\r]+
 
 %%
 
-"|"                       { return PIPE; }
-">"                       { return REDIR_OUT; }
-"<"                       { return REDIR_INP; }
-"pwd"                     { return BUILTIN_CMD_PWD; }
-"cd"                      { return BUILTIN_CMD_CD; }
+">"             { return parser::make_REDIR_OUT(); }
+"<"             { return parser::make_REDIR_IN(); }
+"|"             { return parser::make_PIPE(); }
+"pwd"           { return parser::make_BUILTIN_PWD(); }
+"cd"            { return parser::make_BUILTIN_CD(); }
 
-{ID}+                     { CALLOC_CHECKED(yylval.strval, yyleng + 1, 1); strncpy(yylval.strval, yytext, yyleng); return ID; }
-{WS}+                     { }
+{whitespace}+   { }
+<<EOF>>         { return parser::make_YYEOF(); }
+
+{string}        { return parser::make_IDENTIFIER(yytext); }
 
 %%
-
-void yy_set_input_string_(const char *str) {
-  yy_scan_string(str);
-}
-
-void yy_delete_current_buffer_() {
-  yy_delete_buffer(YY_CURRENT_BUFFER);
-}

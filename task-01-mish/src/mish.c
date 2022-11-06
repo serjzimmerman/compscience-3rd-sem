@@ -43,9 +43,11 @@ int execute_generic(command_t *cmd) {
   CALLOC_CHECKED(args, cmd->args->length + 2, sizeof(char *));
 
   unsigned i = 0;
+  
   for (command_arg_list_node *node = cmd->args->first; node != NULL; node = node->next, ++i) {
     args[i + 1] = node->value;
   }
+
   args[0] = cmd->path;
 
   if (execvp(cmd->path, args) == -1) {

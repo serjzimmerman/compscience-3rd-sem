@@ -22,7 +22,6 @@ bool execute(std::vector<std::unique_ptr<mish::i_command>> &&vec) {
       oput = fifo_2;
     }
 
-    std::cerr << "here\n";
     if (!vec[i]->execute(iput, oput)) {
       return false;
     }
@@ -36,6 +35,11 @@ bool execute(std::vector<std::unique_ptr<mish::i_command>> &&vec) {
 int main() {
   mkfifo(fifo_1, 0666);
   mkfifo(fifo_2, 0666);
+
+  auto fd1 = open(fifo_1, O_WRONLY | O_NONBLOCK);
+  auto fd2 = open(fifo_2, O_WRONLY | O_NONBLOCK);
+  close(fd1);
+  close(fd2);
 
   while (std::cin.good()) {
     std::string line;

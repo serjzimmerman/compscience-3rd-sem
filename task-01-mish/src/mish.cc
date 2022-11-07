@@ -1,45 +1,88 @@
 #include "command.hpp"
 #include "driver.hpp"
+#include <array>
 #include <iostream>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <variant>
 #include <vector>
 
-static char *fifo_1 = "/tmp/mish_fifo1";
-static char *fifo_2 = "/tmp/mish_fifo2";
+static constexpr unsigned RD_PIPE = 0;
+static constexpr unsigned WR_PIPE = 1;
 
-bool execute(std::vector<std::unique_ptr<mish::i_command>> &&vec) {
-  for (unsigned i = 0; i < vec.size(); ++i) {
-    std::optional<std::string> iput;
-    std::optional<std::string> oput;
-
-    if (i != 0) {
-      iput = fifo_1;
+std::optional<int> spawn_process(int in, int out, mish::i_command *cmd) {
+  int pid;
+  if ((pid = fork()) == 0) {
+    if (in != STDIN_FILENO) {
+      dup2(in, STDIN_FILENO);
+      close(in);
     }
 
-    if (i != vec.size() - 1) {
-      oput = fifo_2;
+    if (out != STDOUT_FILENO) {
+      dup2(out, STDOUT_FILENO);
+      close(out);
     }
 
-    if (!vec[i]->execute(iput, oput)) {
-      return false;
-    }
-
-    std::swap(fifo_1, fifo_2);
+    if (!cmd->execute()) exit(EXIT_FAILURE);
   }
 
-  return true;
+  else if (pid == -1) {
+    perror("mish: ");
+    return std::nullopt;
+  }
+
+  return pid;
+}
+
+bool execute(std::vector<std::unique_ptr<mish::i_command>> &&vec) {
+  std::array<int, 2> fd;
+  int                in = 0;
+  std::vector<int>   pids;
+  bool               success = true;
+
+  for (unsigned i = 0; i < vec.size(); ++i) {
+    if (i != vec.size() - 1) {
+      if (pipe(fd.data()) < 0) {
+        perror("mish: ");
+        success = false;
+        break;
+      }
+
+      auto possible_pid = spawn_process(in, fd[WR_PIPE], vec[i].get());
+      if (!possible_pid) {
+        success = false;
+        break;
+      }
+
+      pids.push_back(possible_pid.value());
+
+      close(fd[WR_PIPE]);
+      in = fd[RD_PIPE];
+      continue;
+    }
+
+    // Last iteration
+    auto possible_pid = spawn_process(in, STDOUT_FILENO, vec[i].get());
+    if (!possible_pid) {
+      success = false;
+      break;
+    }
+
+    pids.push_back(possible_pid.value());
+  }
+
+  int ret;
+  for (const auto &v : pids) {
+    waitpid(v, &ret, 0);
+    if (ret != 0) success = false;
+  }
+
+  return success;
 }
 
 int main() {
-  mkfifo(fifo_1, 0666);
-  mkfifo(fifo_2, 0666);
-
-  auto fd1 = open(fifo_1, O_WRONLY | O_NONBLOCK);
-  auto fd2 = open(fifo_2, O_WRONLY | O_NONBLOCK);
-  close(fd1);
-  close(fd2);
+  std::cout << "[mish]$ ";
 
   while (std::cin.good()) {
     std::string line;
@@ -54,14 +97,17 @@ int main() {
 
     drv.switch_input_stream(&iss);
     auto result = drv.parse();
-    if (!result) continue;
+    if (!result) {
+      std::cout << "[mish]$ ";
+      continue;
+    }
 
-    execute(std::move(drv.m_parsed));
+    if (std::holds_alternative<std::unique_ptr<mish::i_command>>(drv.m_parsed)) {
+      std::get<1>(drv.m_parsed)->execute();
+    } else {
+      execute(std::move(std::get<0>(drv.m_parsed)));
+    }
+
+    std::cout << "[mish]$ ";
   }
-
-  remove(fifo_1);
-  remove(fifo_2);
-
-  std::unique_ptr<mish::i_command> pwd = std::make_unique<mish::pwd_command>();
-  pwd->execute(std::nullopt, std::nullopt);
 }

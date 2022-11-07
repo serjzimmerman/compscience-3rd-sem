@@ -14,7 +14,6 @@
 #include <iostream>
 #include <memory>
 #include <optional>
-#include <string>
 #include <vector>
 
 extern "C" {
@@ -29,7 +28,7 @@ extern "C" {
 namespace mish {
 
 struct i_command {
-  virtual bool execute(std::optional<std::string>, std::optional<std::string>) = 0;
+  virtual bool execute() = 0;
   virtual ~i_command(){};
 };
 
@@ -51,33 +50,12 @@ struct generic_command : i_command {
     return args;
   }
 
-  bool execute(std::optional<std::string> iput, std::optional<std::string> oput) override {
-    int child;
-
-    if ((child = fork()) == 0) {
-      if (iput) {
-        int fdi = open(iput.value().c_str(), O_RDONLY | O_NONBLOCK);
-        std::cerr << "Swap iput\n";
-        dup2(fdi, STDIN_FILENO);
-        close(fdi);
-      }
-
-      if (oput) {
-        int fdo = open(oput.value().c_str(), O_WRONLY | O_NONBLOCK);
-        std::cerr << "Swap oput\n";
-        dup2(fdo, STDOUT_FILENO);
-        close(fdo);
-      }
-
-      if (execvp(m_command_name.c_str(), to_argument_vector().data()) == -1) {
-        perror("mish: ");
-        exit(1);
-      }
+  bool execute() override {
+    if (execvp(m_command_name.c_str(), to_argument_vector().data()) == -1) {
+      perror("mish: ");
+      return false;
     }
-
-    int ret;
-    waitpid(child, &ret, 0);
-    return !ret;
+    return true; // Never gets here
   }
 };
 
@@ -86,12 +64,11 @@ struct cd_command : i_command {
 
   cd_command(std::string arg) : m_arg{arg} {}
 
-  bool execute(std::optional<std::string>, std::optional<std::string>) override {
-    if (chdir(m_arg.c_str()) == -1) {
+  bool execute() override {
+    if (chdir(m_arg.c_str()) < 0) {
       perror("cd: ");
       return false;
     }
-
     return true;
   }
 };
@@ -99,7 +76,7 @@ struct cd_command : i_command {
 struct pwd_command : i_command {
   pwd_command() = default;
 
-  bool execute(std::optional<std::string>, std::optional<std::string> oput) override {
+  bool execute() override {
     auto  freer = [](char *ptr) { free(static_cast<void *>(ptr)); };
     char *path_string = getcwd(NULL, PATH_MAX);
 
@@ -109,14 +86,7 @@ struct pwd_command : i_command {
     }
 
     auto path = std::unique_ptr<char, decltype(freer)>{path_string, freer};
-
-    if (oput) {
-      std::ofstream os{oput.value()};
-      if (!os.good()) return false;
-      os << path.get() << "\n";
-    } else {
-      std::cout << path.get() << "\n";
-    }
+    std::cout << path.get() << "\n";
 
     return true;
   }

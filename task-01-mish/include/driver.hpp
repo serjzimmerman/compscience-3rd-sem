@@ -15,6 +15,7 @@
 #include "scanner.hpp"
 
 #include <memory>
+#include <variant>
 #include <vector>
 
 namespace mish {
@@ -28,8 +29,9 @@ private:
   friend class scanner;
 
 public:
-  std::vector<std::unique_ptr<i_command>> m_parsed;
-  bool                                    m_success = true;
+  std::variant<std::vector<std::unique_ptr<i_command>>, std::unique_ptr<i_command>> m_parsed;
+
+  bool m_success = true;
 
   driver() : m_scanner{}, m_parser{m_scanner, *this} {}
 

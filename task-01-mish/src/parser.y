@@ -74,18 +74,21 @@ static mish::parser::symbol_type yylex(mish::scanner &p_scanner, mish::driver &p
 
 %type <std::vector<std::string>> arguments
 %type <std::unique_ptr<mish::i_command>> command
-%type <std::variant<std::vector<std::unique_ptr<mish::i_command>>, std::unique_ptr<mish::i_command>>> program
+%type <std::vector<std::unique_ptr<mish::i_command>>> program
+%type <std::unique_ptr<mish::i_command>> program_without_pipe
 
 %start all
 
 %%
 
-all: program                        { driver.m_parsed = std::move($1); }
+all:  program                         { driver.m_parsed = std::move($1); }
+      | program_without_pipe          { driver.m_parsed = std::move($1); }
+ 
+program_without_pipe: BUILTIN_CD IDENTIFIER   { $$ = std::make_unique<mish::cd_command>($2); }
+                      | BUILTIN_PWD             { $$ = std::make_unique<mish::pwd_command>(); }
 
-program:  program PIPE command      { std::get<0>($$)= std::move(std::get<0>($1)); std::get<0>($$).push_back(std::move($3)); }
-          | command                 { std::get<0>($$).push_back(std::move($1)); }
-          | BUILTIN_CD IDENTIFIER   { $$ = std::make_unique<mish::cd_command>($2); }
-          | BUILTIN_PWD             { $$ = std::make_unique<mish::pwd_command>(); }
+program:  program PIPE command      { $$ = std::move($1); $$.push_back(std::move($3)); }
+          | command                 { $$.push_back(std::move($1)); }
 
 command:  IDENTIFIER arguments      { $$ = std::make_unique<mish::generic_command>($1, std::move($2)); }
 

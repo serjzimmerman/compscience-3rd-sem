@@ -24,7 +24,7 @@ using namespace mish;
 %option yyclass="scanner"
 
 whitespace  [ \t\n\r]
-string      [^ \t\n\r]+
+string      [^ \t\n\r|]+
 
 %%
 

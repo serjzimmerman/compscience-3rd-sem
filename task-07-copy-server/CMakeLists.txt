@@ -65,9 +65,19 @@ endif()
 set(CMAKE_CXX_STANDARD 20)
 find_package(Boost COMPONENTS program_options)
 
-set(PIPE_SOURCES
-  src/copyserver.cc
+find_package(FLEX REQUIRED)
+find_package(BISON REQUIRED)
+
+bison_target(parser src/parser.y ${CMAKE_CURRENT_BINARY_DIR}/parser.y.cc DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/bison_command_parser.hpp)
+flex_target(scanner src/scanner.l ${CMAKE_CURRENT_BINARY_DIR}/scanner.l.cc DEFINES_FILE)
+add_flex_bison_dependency(scanner parser)
+
+set(SERVER_SOURCES
+  src/server.cc
+  ${BISON_parser_OUTPUTS}
+  ${FLEX_scanner_OUTPUTS}
 )
 
-add_executable(copyserver ${PIPE_SOURCES})
-target_link_libraries(copyserver Boost::program_options)
+add_executable(server ${SERVER_SOURCES})
+target_link_libraries(server Boost::program_options)
+target_include_directories(server PUBLIC include ${CMAKE_CURRENT_BINARY_DIR})

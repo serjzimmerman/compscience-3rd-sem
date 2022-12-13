@@ -14,7 +14,16 @@
 #include <deque>
 #include <mutex>
 
-namespace multithreaded_adaptors {
+extern "C" {
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
+#include <unistd.h>
+}
+
+namespace utils {
 
 template <typename T> class shared_queue {
 private:
@@ -53,4 +62,4 @@ public:
   }
 };
 
-}; // namespace multithreaded_adaptors
+}; // namespace utils

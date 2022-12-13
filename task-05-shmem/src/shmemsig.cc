@@ -185,7 +185,8 @@ int main(int argc, char *argv[]) {
 
       std::strcpy(str.data(), pages[child_index.page] + child_index.offset);
 
-      *os << "[Child process]: read finished" << std::endl; // Use endl to flush the buffer.
+      *os << "[Child process]: read finished, page =  " << child_index.page << ", offset = " << child_index.offset
+          << std::endl; // Use endl to flush the buffer.
       if (verbose) *os << "[Child process]: string = " << str.data() << std::endl;
 
       should_read_child = false;
@@ -218,7 +219,8 @@ int main(int argc, char *argv[]) {
       rw_index idx = {page, offset};
       auto     cast = std::bit_cast<sigval>(idx);
 
-      *os << "[Parent process]: write finished" << std::endl; // Use endl to flush the buffer.
+      *os << "[Parent process]: write finished, page = " << idx.page << ", offset = " << idx.offset
+          << std::endl; // Use endl to flush the buffer.
       if (verbose) *os << "[Parent process]: string = " << str << std::endl;
 
       should_write_parent = false;

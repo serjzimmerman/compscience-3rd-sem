@@ -12,15 +12,15 @@
 #include <iostream>
 #include <numeric>
 
-#include "bison_command_parser.hpp"
-#include "scanner.hpp"
+#include "bison_req_parser.hpp"
+#include "req_parser/scanner.hpp"
 
-using namespace command_parser;
+using namespace req_parser;
 %}
 
 %option noyywrap nounput noinput nodefault 
 %option c++
-%option prefix="command_parser_"
+%option prefix="req_parser_"
 %option yyclass="scanner"
 
 whitespace  [ \t\n\r]
@@ -28,8 +28,7 @@ quoted_string ["]([^"\\\n]|\\(.|\n))*["]
 
 %%
 
-"register"      { return parser::make_REGISTER(); }
-"status"        { return parser::make_STATUS(); }
+"get"           { return parser::make_GET(); }
 
 {whitespace}+   { }
 <<EOF>>         { return parser::make_EOF(); }

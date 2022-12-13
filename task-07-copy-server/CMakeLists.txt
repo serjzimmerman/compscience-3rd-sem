@@ -68,14 +68,21 @@ find_package(Boost COMPONENTS program_options)
 find_package(FLEX REQUIRED)
 find_package(BISON REQUIRED)
 
-bison_target(parser src/parser.y ${CMAKE_CURRENT_BINARY_DIR}/parser.y.cc DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/bison_command_parser.hpp)
-flex_target(scanner src/scanner.l ${CMAKE_CURRENT_BINARY_DIR}/scanner.l.cc DEFINES_FILE)
+bison_target(parser src/ctl_parser/parser.y ${CMAKE_CURRENT_BINARY_DIR}/ctl_parser.y.cc DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/bison_command_parser.hpp)
+flex_target(scanner src/ctl_parser/scanner.l ${CMAKE_CURRENT_BINARY_DIR}/ctl_scanner.l.cc DEFINES_FILE)
+add_flex_bison_dependency(scanner parser)
+
+
+bison_target(reqparser src/req_parser/parser.y ${CMAKE_CURRENT_BINARY_DIR}/req_parser.y.cc DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/bison_req_parser.hpp)
+flex_target(reqscanner src/req_parser/scanner.l ${CMAKE_CURRENT_BINARY_DIR}/req_scanner.l.cc DEFINES_FILE)
 add_flex_bison_dependency(scanner parser)
 
 set(SERVER_SOURCES
   src/server.cc
   ${BISON_parser_OUTPUTS}
   ${FLEX_scanner_OUTPUTS}
+  ${BISON_reqparser_OUTPUTS}
+  ${FLEX_reqscanner_OUTPUTS}
 )
 
 add_executable(server ${SERVER_SOURCES})

@@ -1,42 +1,42 @@
 #include <array>
-#include <chrono>
-#include <cstdint>
-#include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <ios>
 #include <iostream>
 #include <iterator>
+#include <limits>
+#include <memory>
 #include <random>
 #include <ratio>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
 
+#include <boost/asio.hpp>
+#include <boost/asio/buffer.hpp>
+#include <boost/asio/posix/stream_descriptor.hpp>
 #include <boost/asio/read_until.hpp>
+#include <boost/asio/write.hpp>
 #include <boost/program_options.hpp>
 #include <boost/program_options/option.hpp>
 #include <boost/system.hpp>
-
-#include <boost/asio.hpp>
 namespace po = boost::program_options;
 
 #include "utils.hpp"
 
 extern "C" {
 #include <fcntl.h>
-#include <readline/readline.h>
-#include <signal.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
 #include <unistd.h>
 }
 
-#include "driver.hpp"
+#include "command_parser/driver.hpp"
+#include "req_parser/driver.hpp"
+
 #include <algorithm>
 #include <filesystem>
 #include <optional>
+
+namespace {
 
 namespace fs = std::filesystem;
 
@@ -58,61 +58,72 @@ void create_fifo(const std::string &path) {
   }
 }
 
-class c_file {
-private:
-  static constexpr auto file_deleter = [](std::FILE *ptr) { std::fclose(ptr); };
+namespace asio = boost::asio;
 
-  std::unique_ptr<std::FILE, decltype(file_deleter)> m_underlying;
+class client_handler : public std::enable_shared_from_this<client_handler> {
+private:
+  asio::io_service &m_service;
+
+  asio::posix::stream_descriptor m_client_input;
+  asio::posix::stream_descriptor m_client_output;
+
+  asio::streambuf m_input_buf;
+
+  req_parser::driver m_drv;
 
 public:
-  c_file(std::FILE *p) : m_underlying{p, file_deleter} {}
+  client_handler(asio::io_service &service, int in, int out)
+      : m_service{service}, m_client_input{service, in}, m_client_output{service, out} {}
 
-  std::FILE *get() { return m_underlying.get(); }
+  void read_request() {
+    boost::asio::async_read_until(m_client_input, m_input_buf, '\n',
+                                  [me = shared_from_this()](auto ec, auto sz) { me->read_request_done(ec, sz); });
+  }
 
-  std::string read_line() {
-    char       *line_ptr = nullptr;
-    std::size_t count;
+  void read_request_done(boost::system::error_code ec, std::size_t sz) {
+    if (ec) return;
 
-    getline(&line_ptr, &count, m_underlying.get());
+    std::istream is{&m_input_buf};
+    m_drv.switch_input_stream(&is);
+    bool result = m_drv.parse();
 
-    static constexpr auto                    deleter = [](char *ptr) { std::free(ptr); };
-    std::unique_ptr<char, decltype(deleter)> str = {line_ptr, deleter};
+    // Flush everything that is left
+    is.ignore(std::numeric_limits<std::streamsize>::max());
 
-    if (!line_ptr) throw std::runtime_error{std::strerror(errno)};
+    // std::string_view resstr = result ? "[ack]\n" : "[err]\n";
+    // auto             b = asio::buffer(resstr);
 
-    return std::string{str.get()};
+    // if (m_out_desc) {
+    //   boost::asio::write(*m_out_desc, b);
+    // }
+
+    // read_command();
   }
 };
 
-class client_handler {
-private:
-  boost::asio::io_service        &m_service;
-  boost::asio::io_service::strand m_write_strand;
-  boost::asio::streambuf          m_input_buf;
-
-public:
-  client_handler(boost::asio::io_service &service) : m_service{service}, m_write_strand{service} {}
-
-  void read_command() {}
-};
-
-template <typename t_connection_handler> class application_server {
+class application_server {
   unsigned                 m_threads;
   std::vector<std::thread> m_thread_pool;
-  boost::asio::io_service  m_service;
+  asio::io_service         m_service;
+
+  asio::posix::stream_descriptor                m_ctl_input;
+  std::optional<asio::posix::stream_descriptor> m_ctl_output;
 
   struct ctl_handler : public std::enable_shared_from_this<ctl_handler> {
-    boost::asio::io_service               &m_service;
-    boost::asio::io_service::strand        m_write_strand;
-    boost::asio::streambuf                 m_input_buf;
-    boost::asio::posix::stream_descriptor &m_stream_desc;
+    asio::io_service &m_service;
+    asio::streambuf   m_input_buf;
 
-    ctl_handler(boost::asio::io_service &service) : m_service{service}, m_write_strand{service} {}
+    asio::posix::stream_descriptor &m_in_desc;
+    asio::posix::stream_descriptor *m_out_desc;
 
-    auto shared_from_this() { return std::make_shared<ctl_handler>(this); }
+    command_parser::driver m_drv;
+
+    ctl_handler(asio::io_service &service, asio::posix::stream_descriptor &in,
+                asio::posix::stream_descriptor *out = nullptr)
+        : m_service{service}, m_in_desc(in), m_out_desc(out) {}
 
     void read_command() {
-      boost::asio::async_read_until(m_stream_desc, m_input_buf, '\n',
+      boost::asio::async_read_until(m_in_desc, m_input_buf, '\n',
                                     [me = shared_from_this()](auto ec, auto sz) { me->read_command_done(ec, sz); });
     }
 
@@ -120,32 +131,59 @@ template <typename t_connection_handler> class application_server {
       if (ec) return;
 
       std::istream is{&m_input_buf};
+      m_drv.switch_input_stream(&is);
+      bool result = m_drv.parse();
 
-      command_parser::driver drv{};
-      drv.switch_input_stream(&is);
-      bool result = drv.parse();
+      // Flush everything that is left
+      is.ignore(std::numeric_limits<std::streamsize>::max());
+      std::string_view resstr = "[err]\n";
 
-      std::string res = (result ? "[ack]\n" : "[err]\n");
+      if (result) {
+        resstr = "[err]\n";
 
-      if (result) {}
+        auto rx_fifo_fd = open(rx_fifo_name.c_str(), O_RDWR | O_NONBLOCK);
+        if (rx_fifo_fd < 0) throw io_error{"Couldn't open the rx control named pipe"};
+        auto tx_fifo_fd = open(tx_fifo_name.c_str(), O_RDWR | O_NONBLOCK);
+      }
+
+      auto b = asio::buffer(resstr);
+      if (m_out_desc) {
+        boost::asio::write(*m_out_desc, b);
+      }
 
       read_command();
     }
-
-    std::string execute_command() {}
   };
 
   using shared_ctl_handler = std::shared_ptr<ctl_handler>;
 
 public:
-  application_server(unsigned threads = 1) : m_threads{threads} {}
+  application_server(int in, std::optional<int> out, unsigned threads = 1)
+      : m_threads{threads}, m_ctl_input{m_service, in} {
+    if (!out) return;
+    m_ctl_output = asio::posix::stream_descriptor{m_service, out.value()};
+  }
 
-  void create_new_connection(shared_ctl_handler handler, const boost::system::error_code &error) {
-    if (error) return;
+  void start() {
+    auto handler =
+        std::make_shared<ctl_handler>(m_service, m_ctl_input, (m_ctl_output ? &m_ctl_output.value() : nullptr));
+    handler->read_command();
+
+    for (unsigned i = 0; i < m_threads; ++i) {
+      m_thread_pool.push_back(std::thread([&]() { m_service.run(); }));
+    }
+  }
+
+  void stop() {
+    for (auto &v : m_thread_pool) {
+      v.join();
+    }
   }
 };
 
 class control_fifo_handler {};
+
+} // namespace
 
 int main(int argc, char *argv[]) {
   auto        verbose = false;
@@ -175,25 +213,14 @@ int main(int argc, char *argv[]) {
 
   auto rx_fifo_fd = open(rx_fifo_name.c_str(), O_RDWR | O_NONBLOCK);
   if (rx_fifo_fd < 0) throw io_error{"Couldn't open the rx control named pipe"};
-  auto tx_fifo_fd = open(tx_fifo_name.c_str(), O_RDWR | O_NONBLOCK);
+  auto               tx_fifo_fd = open(tx_fifo_name.c_str(), O_RDWR | O_NONBLOCK);
+  std::optional<int> tx_fifo_opt;
 
-  // application_info app = {{rx_fifo_fd, tx_fifo_opt}};
+  if (tx_fifo_fd >= 0) {
+    tx_fifo_opt = tx_fifo_fd;
+  }
 
-  boost::asio::io_service               service;
-  boost::asio::posix::stream_descriptor rx_fifo_descriptor = {service, rx_fifo_fd};
-
-  boost::asio::streambuf b;
-
-  boost::asio::async_read_until(rx_fifo_descriptor, b, "\n", [&b](boost::system::error_code ec, std::size_t sz) {
-    if (ec) {
-      std::cout << "error\n";
-      return;
-    };
-    std::istream is{&b};
-    std::string  s;
-    is >> s;
-    std::cout << s;
-  });
-
-  service.run();
+  application_server server{rx_fifo_fd, tx_fifo_opt, 5};
+  server.start();
+  server.stop();
 }

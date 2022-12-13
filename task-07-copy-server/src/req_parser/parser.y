@@ -18,22 +18,22 @@
 %define api.token.constructor
 %define api.value.type variant
 %define parse.assert
-%define api.namespace { command_parser }
+%define api.namespace { req_parser }
 
 %code requires {
 #include <iostream>
 #include <string>
 #include <vector>
 #include <optional>
-#include "command.hpp"
+#include "request.hpp"
 #include <variant>
 
-namespace command_parser {
+namespace req_parser {
   class scanner;
   class driver;
 }
 
-using namespace command_parser;
+using namespace req_parser;
 
 }
 
@@ -43,36 +43,34 @@ using namespace command_parser;
 #include <iostream>
 #include <string>
 
-#include "driver.hpp"
-#include "scanner.hpp"
-#include "bison_command_parser.hpp"
+#include "req_parser/driver.hpp"
+#include "req_parser/scanner.hpp"
+#include "bison_req_parser.hpp"
 
-static command_parser::parser::symbol_type yylex(command_parser::scanner &p_scanner, command_parser::driver &p_driver) {
+static req_parser::parser::symbol_type yylex(req_parser::scanner &p_scanner, req_parser::driver &p_driver) {
   return p_scanner.get_next_token();
 }
 
 }
 
-%lex-param { command_parser::scanner &scanner }
-%lex-param { command_parser::driver &driver }
-%parse-param { command_parser::scanner &scanner }
-%parse-param { command_parser::driver &driver }
+%lex-param { req_parser::scanner &scanner }
+%lex-param { req_parser::driver &driver }
+%parse-param { req_parser::scanner &scanner }
+%parse-param { req_parser::driver &driver }
 
 %define parse.trace
 %define parse.error verbose
 %define api.token.prefix {TOKEN_}
 
 /* Signle letter tokens */
-%token REGISTER "register"
-%token STATUS "status"
+%token GET "get"
 
 %token EOF 0 "end of file"
 
 /* Terminals */
 %token <std::string> STRING "string"
 
-%type <command_parser::register_command> register_command
-%type <command_parser::status_command> status_command
+%type <req_parser::get_request> get_request
 
 %start all
 
@@ -80,17 +78,13 @@ static command_parser::parser::symbol_type yylex(command_parser::scanner &p_scan
 
 all: command                              { driver.m_success = true; }
 
-command:  register_command                { }
-          | status_command                { }
+command:  get_request                     { }
 
-register_command: REGISTER STRING STRING  { $$ = {$2, $3}; }
-
-status_command: STATUS                    { $$ = {}; }
+get_request: GET STRING                   { $$ = {$2}; }
 
 %%
 
 // Bison expects us to provide implementation - otherwise linker complains
-void command_parser::parser::error(const std::string &msg) {
+void req_parser::parser::error(const std::string &msg) {
   driver.m_success = false;
-  std::cerr << msg << "\n";
 }
